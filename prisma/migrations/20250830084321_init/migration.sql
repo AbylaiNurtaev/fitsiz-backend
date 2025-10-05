@@ -1,0 +1,17 @@
+-- AlterTable
+ALTER TABLE "Mask" ADD COLUMN     "batteryIndicator" TEXT,
+ADD COLUMN     "delayAdjustment" TEXT,
+ADD COLUMN     "gradientFunction" TEXT,
+ADD COLUMN     "hdColorTech" TEXT,
+ADD COLUMN     "headband" TEXT,
+ADD COLUMN     "memoryModes" TEXT,
+ADD COLUMN     "operatingTemp" TEXT,
+ADD COLUMN     "opticalClass" TEXT,
+ADD COLUMN     "packageHeight" TEXT,
+ADD COLUMN     "packageLength" TEXT,
+ADD COLUMN     "packageWidth" TEXT,
+ADD COLUMN     "responseTime" TEXT,
+ADD COLUMN     "sFireProtection" TEXT,
+ADD COLUMN     "sensitivityAdjustment" TEXT,
+ADD COLUMN     "testButton" TEXT,
+ADD COLUMN     "weldingTypes" TEXT;
