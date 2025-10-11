@@ -37,26 +37,15 @@ const {
 require('./bot');
 const app = express();
 const port = process.env.PORT || 3333;
-const allowedOrigins = [
-  'https://fitsiz-front.vercel.app',
-  'http://localhost:3000'
-];
-
+// Разрешаем CORS для всех источников
 app.use(cors({
-  origin: allowedOrigins,
+  origin: true, // Разрешаем все источники
   methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type','Authorization','Accept','Origin'],
   credentials: true,              // если нужны cookies/Authorization
   maxAge: 86400
 }));
 
-// На всякий случай хендлим preflight для всех путей
-app.options('*', cors({
-  origin: allowedOrigins,
-  allowedHeaders: ['Content-Type','Authorization','Accept','Origin'],
-  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
-  credentials: true
-}));
 
 
 app.use(express.json());
