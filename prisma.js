@@ -60,6 +60,14 @@ function createPrismaClient() {
       ? ['error'] 
       : ['error', 'warn'],
     errorFormat: 'minimal',
+    // Отключаем prepared statements в development для избежания конфликтов при hot reload
+    ...(process.env.NODE_ENV !== 'production' && {
+      __internal: {
+        engine: {
+          preparedStatements: false
+        }
+      }
+    })
   })
 }
 
@@ -68,9 +76,15 @@ const globalForPrisma = globalThis
 
 // В development предотвращаем создание множественных экземпляров при hot reload
 if (process.env.NODE_ENV !== 'production') {
-  if (!globalForPrisma.prisma) {
-    globalForPrisma.prisma = createPrismaClient()
+  // Очищаем старый клиент при перезапуске
+  if (globalForPrisma.prisma) {
+    try {
+      globalForPrisma.prisma.$disconnect()
+    } catch (error) {
+      // Игнорируем ошибки при отключении
+    }
   }
+  globalForPrisma.prisma = createPrismaClient()
   prisma = globalForPrisma.prisma
 } else {
   // В production просто создаем один экземпляр
