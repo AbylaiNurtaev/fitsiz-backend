@@ -1,11 +1,13 @@
 const prisma = require("../prisma");
 
 exports.getMasks = async () => {
-  return await prisma.mask.findMany({
-    include: {
-      features: true,
-      reviews: true,
-    },
+  return await prisma.safeExecute(async () => {
+    return await prisma.mask.findMany({
+      include: {
+        features: true,
+        reviews: true,
+      },
+    });
   });
 };
 

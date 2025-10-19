@@ -4,9 +4,11 @@ const prisma = require('../prisma');
 exports.getMask = async (req, res) => {
   try {
     const { id } = req.params;
-    const mask = await prisma.mask.findUnique({
-      where: { id: parseInt(id) },
-      include: { features: true, reviews: true, ExtraField: true },
+    const mask = await prisma.safeExecute(async () => {
+      return await prisma.mask.findUnique({
+        where: { id: parseInt(id) },
+        include: { features: true, reviews: true, ExtraField: true },
+      });
     });
     
     if (!mask) {
@@ -21,12 +23,14 @@ exports.getMask = async (req, res) => {
 
 exports.getMasks = async (req, res) => {
   try {
-    const masks = await prisma.mask.findMany({
-      include: {
-        features: true,
-        reviews: true,
-        ExtraField: true,
-      },
+    const masks = await prisma.safeExecute(async () => {
+      return await prisma.mask.findMany({
+        include: {
+          features: true,
+          reviews: true,
+          ExtraField: true,
+        },
+      });
     });
     res.json(masks);
   } catch (error) {

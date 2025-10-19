@@ -3,7 +3,7 @@ const { PrismaClient } = require('@prisma/client')
 
 let prisma
 
-// Определяем тип окружения и настройки согласно документации Prisma
+// Конфигурация для работы с Supabase pooler
 function getDatabaseUrl() {
   const baseUrl = process.env.DATABASE_URL
   
@@ -11,50 +11,31 @@ function getDatabaseUrl() {
     throw new Error('DATABASE_URL is not defined')
   }
   
+  // Если URL уже содержит параметры, используем его как есть
+  if (baseUrl.includes('?')) {
+    return baseUrl
+  }
+  
   const url = new URL(baseUrl)
   
-  // Определяем количество CPU для расчета connection_limit
-  const numCpus = require('os').cpus().length
-  const isServerless = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NETLIFY
-  
-  // Для Supabase pooler (внешний connection pooler)
+  // Для Supabase pooler - обязательные настройки
   if (baseUrl.includes('pooler.supabase.com')) {
-    if (isServerless) {
-      // Serverless + external pooler: начинаем с 1, можем увеличить
-      url.searchParams.set('connection_limit', '3')
-    } else {
-      // Long-running + external pooler: используем формулу из документации
-      const defaultPoolSize = numCpus * 2 + 1
-      url.searchParams.set('connection_limit', defaultPoolSize.toString())
-    }
+    url.searchParams.set('pgbouncer', 'true')
+    url.searchParams.set('connection_limit', '1')
     url.searchParams.set('pool_timeout', '20')
     url.searchParams.set('sslmode', 'require')
     return url.toString()
   }
   
-  // Для прямого подключения без external pooler
-  if (isServerless) {
-    // Serverless без external pooler: ОБЯЗАТЕЛЬНО connection_limit=1
-    url.searchParams.set('connection_limit', '1')
-    url.searchParams.set('pool_timeout', '20')
-  } else {
-    // Long-running без external pooler: используем default или настраиваем
-    const defaultPoolSize = numCpus * 2 + 1
-    url.searchParams.set('connection_limit', defaultPoolSize.toString())
-    url.searchParams.set('pool_timeout', '10')
-  }
-  
+  // Для прямого подключения
+  url.searchParams.set('connection_limit', '1')
+  url.searchParams.set('pool_timeout', '20')
   url.searchParams.set('sslmode', 'require')
-  
-  // Отключаем prepared statements в development
-  if (process.env.NODE_ENV !== 'production') {
-    url.searchParams.set('prepared_statements', 'false')
-  }
   
   return url.toString()
 }
 
-// Создание Prisma Client
+// Создание Prisma Client с правильными настройками для pooler
 function createPrismaClient() {
   return new PrismaClient({
     datasources: {
@@ -62,38 +43,28 @@ function createPrismaClient() {
         url: getDatabaseUrl(),
       },
     },
-    log: process.env.NODE_ENV === 'production' 
-      ? ['error'] 
-      : ['error', 'warn'],
+    log: ['error'],
     errorFormat: 'minimal',
-    // Полностью отключаем prepared statements в development
-    ...(process.env.NODE_ENV !== 'production' && {
-      __internal: {
-        engine: {
-          preparedStatements: false
-        }
+    // Отключаем prepared statements для работы с pooler
+    __internal: {
+      engine: {
+        preparedStatements: false
       }
-    })
+    }
   })
 }
 
-// Правильная инициализация согласно документации Prisma
+// Простая инициализация Prisma Client
 const globalForPrisma = globalThis
 
-// В development предотвращаем создание множественных экземпляров при hot reload
-if (process.env.NODE_ENV !== 'production') {
-  // В development всегда создаём новый клиент для избежания конфликтов prepared statements
-  prisma = createPrismaClient()
-} else {
-  // В production используем singleton pattern
-  if (!globalForPrisma.prisma) {
-    globalForPrisma.prisma = createPrismaClient()
-  }
-  prisma = globalForPrisma.prisma
+if (!globalForPrisma.prisma) {
+  globalForPrisma.prisma = createPrismaClient()
 }
 
-// Функция для безопасного выполнения запросов с retry логикой
-async function executeWithRetry(operation, maxRetries = 3) {
+prisma = globalForPrisma.prisma
+
+// Простая функция для безопасного выполнения запросов
+async function executeWithRetry(operation, maxRetries = 2) {
   let lastError
   
   for (let i = 0; i < maxRetries; i++) {
@@ -102,33 +73,10 @@ async function executeWithRetry(operation, maxRetries = 3) {
     } catch (error) {
       lastError = error
       
-      // Если это ошибка prepared statement - пересоздаём клиент
-      if (error.code === '42P05' || error.code === '26000' || error.message.includes('prepared statement')) {
-        console.warn(`Prepared statement conflict detected, recreating client ${i + 1}/${maxRetries}`)
-        
-        // Пересоздаём клиент
-        if (process.env.NODE_ENV !== 'production') {
-          try {
-            await prisma.$disconnect()
-          } catch (disconnectError) {
-            // Игнорируем ошибки отключения
-          }
-          // Создаём новый клиент
-          const newClient = createPrismaClient()
-          Object.assign(prisma, newClient)
-        }
-        
-        // Ждем перед повторной попыткой
-        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)))
-        continue
-      }
-      
-      // Если это ошибка connection pool timeout
-      if (error.code === 'P2024') {
-        console.warn(`Connection pool timeout, retry ${i + 1}/${maxRetries}`)
-        
-        // Ждем перед повторной попыткой
-        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)))
+      // Если это ошибка подключения - ждем и повторяем
+      if (error.code === 'P2024' || error.message.includes('Can\'t reach database server')) {
+        console.warn(`Database connection error, retry ${i + 1}/${maxRetries}`)
+        await new Promise(resolve => setTimeout(resolve, 1000))
         continue
       }
       
@@ -143,7 +91,7 @@ async function executeWithRetry(operation, maxRetries = 3) {
 // Расширяем prisma клиент функцией безопасного выполнения
 prisma.safeExecute = executeWithRetry
 
-// Проверка подключения при старте (упрощенная)
+// Простая проверка подключения
 async function testConnection() {
   try {
     await executeWithRetry(async () => {
@@ -155,16 +103,13 @@ async function testConnection() {
   }
 }
 
-// Тестируем подключение только один раз при старте
-if (process.env.NODE_ENV !== 'test') {
-  testConnection()
-}
+// Тестируем подключение при старте
+testConnection()
 
-// Graceful shutdown (НЕ disconnect в long-running приложениях по умолчанию)
+// Graceful shutdown
 const shutdown = async (signal) => {
   console.log(`Received ${signal}, shutting down gracefully...`)
   
-  // В long-running приложениях отключаемся только при завершении процесса
   try {
     await prisma.$disconnect()
     console.log('Database disconnected')
@@ -179,6 +124,4 @@ const shutdown = async (signal) => {
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
 
-// НЕ отключаемся на beforeExit в long-running приложениях
-
-module.exports = /** @type {PrismaClient} */ (prisma);
+module.exports = prisma;
