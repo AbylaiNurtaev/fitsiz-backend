@@ -45,6 +45,12 @@ function getDatabaseUrl() {
   }
   
   url.searchParams.set('sslmode', 'require')
+  
+  // Отключаем prepared statements в development
+  if (process.env.NODE_ENV !== 'production') {
+    url.searchParams.set('prepared_statements', 'false')
+  }
+  
   return url.toString()
 }
 
@@ -60,7 +66,7 @@ function createPrismaClient() {
       ? ['error'] 
       : ['error', 'warn'],
     errorFormat: 'minimal',
-    // Отключаем prepared statements в development для избежания конфликтов при hot reload
+    // Полностью отключаем prepared statements в development
     ...(process.env.NODE_ENV !== 'production' && {
       __internal: {
         engine: {
@@ -76,19 +82,14 @@ const globalForPrisma = globalThis
 
 // В development предотвращаем создание множественных экземпляров при hot reload
 if (process.env.NODE_ENV !== 'production') {
-  // Очищаем старый клиент при перезапуске
-  if (globalForPrisma.prisma) {
-    try {
-      globalForPrisma.prisma.$disconnect()
-    } catch (error) {
-      // Игнорируем ошибки при отключении
-    }
-  }
-  globalForPrisma.prisma = createPrismaClient()
-  prisma = globalForPrisma.prisma
-} else {
-  // В production просто создаем один экземпляр
+  // В development всегда создаём новый клиент для избежания конфликтов prepared statements
   prisma = createPrismaClient()
+} else {
+  // В production используем singleton pattern
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = createPrismaClient()
+  }
+  prisma = globalForPrisma.prisma
 }
 
 // Функция для безопасного выполнения запросов с retry логикой
@@ -100,6 +101,27 @@ async function executeWithRetry(operation, maxRetries = 3) {
       return await operation()
     } catch (error) {
       lastError = error
+      
+      // Если это ошибка prepared statement - пересоздаём клиент
+      if (error.code === '42P05' || error.code === '26000' || error.message.includes('prepared statement')) {
+        console.warn(`Prepared statement conflict detected, recreating client ${i + 1}/${maxRetries}`)
+        
+        // Пересоздаём клиент
+        if (process.env.NODE_ENV !== 'production') {
+          try {
+            await prisma.$disconnect()
+          } catch (disconnectError) {
+            // Игнорируем ошибки отключения
+          }
+          // Создаём новый клиент
+          const newClient = createPrismaClient()
+          Object.assign(prisma, newClient)
+        }
+        
+        // Ждем перед повторной попыткой
+        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)))
+        continue
+      }
       
       // Если это ошибка connection pool timeout
       if (error.code === 'P2024') {

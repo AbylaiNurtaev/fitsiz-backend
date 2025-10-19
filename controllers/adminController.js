@@ -120,8 +120,10 @@ exports.createAdmin = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     console.log('Hashed password:', hashedPassword);
 
-    const admin = await prisma.userAdmin.create({
-      data: { username, password: hashedPassword },
+    const admin = await prisma.safeExecute(async () => {
+      return await prisma.userAdmin.create({
+        data: { username, password: hashedPassword },
+      });
     });
     console.log('Created admin:', { id: admin.id, username: admin.username });
 
@@ -139,7 +141,9 @@ exports.loginAdmin = async (req, res) => {
       return res.status(400).json({ error: 'Username and password are required' });
     }
     console.log('Login attempt:', { username });
-    const admin = await prisma.userAdmin.findUnique({ where: { username } });
+    const admin = await prisma.safeExecute(async () => {
+      return await prisma.userAdmin.findUnique({ where: { username } });
+    });
     console.log('Found admin:', admin ? { id: admin.id, username: admin.username } : 'Admin not found');
 
     if (!admin) {
@@ -169,43 +173,45 @@ exports.createMask = async (req, res) => {
     const body = req.body;
 
     // маппим приходящие поля в те, что есть в Prisma
-    const mask = await prisma.mask.create({
-      data: {
-        name: body.model,
-        instructions: body.fullName || null,
-        price: body.retailPrice || null,
-        weight: body.weight || null,
-        viewArea: body.viewWindowSize || body.visibleArea || null,
-        sensors: body.sensorsCount ? parseInt(body.sensorsCount) : null,
-        shadeRange: body.shadeLevel || null,
-        power: body.lightState || null,
-        material: body.body || null,
-        description: body.article || null,
-    
-        batteryIndicator: body.batteryIndicator || null,
-        hdColorTech: body.hdColorTech || null,
-        memoryModes: body.memoryModes || null,
-        weldingTypes: body.weldingTypes || null,
-        gradientFunction: body.gradientFunction || null,
-        testButton: body.testButton || null,
-        sFireProtection: body.sFireProtection || null,
-        delayAdjustment: body.delayAdjustment || null,
-        sensitivityAdjustment: body.sensitivityAdjustment || null,
-        operatingTemp: body.operatingTemp || null,
-        opticalClass: body.opticalClass || null,
-        responseTime: body.responseTime || null,
-        headband: body.headband || null,
-        packageHeight: body.packageHeight || null,
-        packageLength: body.packageLength || null,
-        packageWidth: body.packageWidth || null,
-    
-        ExtraField: {
-          create: (body.extraFields || [])
-            .filter(f => f.key && f.value)
-            .map(f => ({ key: f.key, value: f.value })),
+    const mask = await prisma.safeExecute(async () => {
+      return await prisma.mask.create({
+        data: {
+          name: body.model,
+          instructions: body.fullName || null,
+          price: body.retailPrice || null,
+          weight: body.weight || null,
+          viewArea: body.viewWindowSize || body.visibleArea || null,
+          sensors: body.sensorsCount ? parseInt(body.sensorsCount) : null,
+          shadeRange: body.shadeLevel || null,
+          power: body.lightState || null,
+          material: body.body || null,
+          description: body.article || null,
+      
+          batteryIndicator: body.batteryIndicator || null,
+          hdColorTech: body.hdColorTech || null,
+          memoryModes: body.memoryModes || null,
+          weldingTypes: body.weldingTypes || null,
+          gradientFunction: body.gradientFunction || null,
+          testButton: body.testButton || null,
+          sFireProtection: body.sFireProtection || null,
+          delayAdjustment: body.delayAdjustment || null,
+          sensitivityAdjustment: body.sensitivityAdjustment || null,
+          operatingTemp: body.operatingTemp || null,
+          opticalClass: body.opticalClass || null,
+          responseTime: body.responseTime || null,
+          headband: body.headband || null,
+          packageHeight: body.packageHeight || null,
+          packageLength: body.packageLength || null,
+          packageWidth: body.packageWidth || null,
+      
+          ExtraField: {
+            create: (body.extraFields || [])
+              .filter(f => f.key && f.value)
+              .map(f => ({ key: f.key, value: f.value })),
+          },
         },
-      },
-      include: { ExtraField: true },
+        include: { ExtraField: true },
+      });
     });
     
 

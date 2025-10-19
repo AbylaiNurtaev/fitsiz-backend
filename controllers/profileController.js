@@ -2,6 +2,7 @@
 const prisma = require('../prisma');
 const { sendMessage } = require('../services/telegramService');
 const { getSetting } = require('../services/settingsService');
+
 exports.updateProfile = async (req, res) => {
   try {
     const { telegramId, firstName, phone, email, maskId, quiz, add } = req.body;
@@ -17,47 +18,56 @@ exports.updateProfile = async (req, res) => {
         return res.status(400).json({ error: 'Invalid maskId' });
       }
 
-      mask = await prisma.mask.findUnique({ where: { id: parsedMaskId } });
+      mask = await prisma.safeExecute(async () => {
+        return await prisma.mask.findUnique({ where: { id: parsedMaskId } });
+      });
+      
       if (!mask) {
         return res.status(400).json({ error: 'Mask with provided maskId does not exist' });
       }
     }
 
-    const user = await prisma.user.upsert({
-      where: { telegramId },
-      update: {
-        firstName: firstName || undefined,
-        phone: phone || null,
-        email: email || null,
-        isBotAvailable: true,
-        quiz: typeof quiz === 'boolean' ? quiz : undefined,
-      },
-      create: {
-        telegramId,
-        firstName: firstName || 'Unknown',
-        phone: phone || null,
-        email: email || null,
-        quiz: typeof quiz === 'boolean' ? quiz : false,
-        isBotAvailable: true,
-      },
+    const user = await prisma.safeExecute(async () => {
+      return await prisma.user.upsert({
+        where: { telegramId },
+        update: {
+          firstName: firstName || undefined,
+          phone: phone || null,
+          email: email || null,
+          isBotAvailable: true,
+          quiz: typeof quiz === 'boolean' ? quiz : undefined,
+        },
+        create: {
+          telegramId,
+          firstName: firstName || 'Unknown',
+          phone: phone || null,
+          email: email || null,
+          quiz: typeof quiz === 'boolean' ? quiz : false,
+          isBotAvailable: true,
+        },
+      });
     });
 
     if (mask && add === true) {
-      const existing = await prisma.userMask.findUnique({
-        where: {
-          userId_maskId: {
-            userId: user.id,
-            maskId: mask.id,
+      const existing = await prisma.safeExecute(async () => {
+        return await prisma.userMask.findUnique({
+          where: {
+            userId_maskId: {
+              userId: user.id,
+              maskId: mask.id,
+            },
           },
-        },
+        });
       });
 
       if (!existing) {
-        await prisma.userMask.create({
-          data: {
-            user: { connect: { id: user.id } },
-            mask: { connect: { id: mask.id } },
-          },
+        await prisma.safeExecute(async () => {
+          return await prisma.userMask.create({
+            data: {
+              user: { connect: { id: user.id } },
+              mask: { connect: { id: mask.id } },
+            },
+          });
         });
       }
 

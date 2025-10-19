@@ -1,5 +1,6 @@
 
 const prisma = require('../prisma');
+
 exports.getMask = async (req, res) => {
   try {
     const { id } = req.params;
@@ -7,6 +8,7 @@ exports.getMask = async (req, res) => {
       where: { id: parseInt(id) },
       include: { features: true, reviews: true, ExtraField: true },
     });
+    
     if (!mask) {
       return res.status(404).json({ error: "Mask not found" });
     }
@@ -16,6 +18,7 @@ exports.getMask = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
 exports.getMasks = async (req, res) => {
   try {
     const masks = await prisma.mask.findMany({
@@ -39,6 +42,7 @@ exports.getMaskInstructions = async (req, res) => {
       where: { id: parseInt(id) },
       select: { instructions: true },
     });
+    
     if (!mask) {
       return res.status(404).json({ error: 'Mask not found' });
     }

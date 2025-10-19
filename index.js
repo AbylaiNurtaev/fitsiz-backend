@@ -7,6 +7,7 @@ const { getUser } = require('./controllers/userController.js');
 const { getMasks, getMaskInstructions, getMask } = require('./controllers/maskController.js');
 const { getVideos, getVideo } = require('./controllers/videoController.js');
 const { updateProfile } = require('./controllers/profileController.js');
+const clearPreparedStatements = require('./middleware/clearPreparedStatements.js');
 
 require('dotenv').config();
 const prisma = require('./prisma');
@@ -49,6 +50,8 @@ app.use(cors({
 
 
 app.use(express.json());
+app.use(cors());
+app.use(clearPreparedStatements);
 
 
 // Публичные эндпоинты
