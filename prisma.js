@@ -18,16 +18,9 @@ function getDatabaseUrl() {
   
   const url = new URL(baseUrl)
   
-  // Для Supabase pooler - обязательные настройки
-  if (baseUrl.includes('pooler.supabase.com')) {
-    url.searchParams.set('pgbouncer', 'true')
-    url.searchParams.set('connection_limit', '1')
-    url.searchParams.set('pool_timeout', '20')
-    url.searchParams.set('sslmode', 'require')
-    return url.toString()
-  }
-  
-  // Для прямого подключения
+  // Всегда отключаем prepared statements через pgbouncer=true,
+  // так как на проде может использоваться PgBouncer/Pooler любого провайдера
+  url.searchParams.set('pgbouncer', 'true')
   url.searchParams.set('connection_limit', '1')
   url.searchParams.set('pool_timeout', '20')
   url.searchParams.set('sslmode', 'require')
@@ -64,7 +57,7 @@ if (!globalForPrisma.prisma) {
 prisma = globalForPrisma.prisma
 
 // Простая функция для безопасного выполнения запросов
-async function executeWithRetry(operation, maxRetries = 2) {
+async function executeWithRetry(operation, maxRetries = 5) {
   let lastError
   
   for (let i = 0; i < maxRetries; i++) {
@@ -73,10 +66,11 @@ async function executeWithRetry(operation, maxRetries = 2) {
     } catch (error) {
       lastError = error
       
-      // Если это ошибка подключения - ждем и повторяем
-      if (error.code === 'P2024' || error.message.includes('Can\'t reach database server')) {
-        console.warn(`Database connection error, retry ${i + 1}/${maxRetries}`)
-        await new Promise(resolve => setTimeout(resolve, 1000))
+      // Если это ошибка подключения - ждем и повторяем (P1001, P2024, Can't reach ...)
+      if (error.code === 'P1001' || error.code === 'P2024' || (typeof error.message === 'string' && error.message.includes("Can't reach database server"))) {
+        const delayMs = Math.min(5000, 500 * Math.pow(2, i))
+        console.warn(`Database connection error, retry ${i + 1}/${maxRetries} after ${delayMs}ms`)
+        await new Promise(resolve => setTimeout(resolve, delayMs))
         continue
       }
       

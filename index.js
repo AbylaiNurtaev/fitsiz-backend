@@ -7,7 +7,6 @@ const { getUser } = require('./controllers/userController.js');
 const { getMasks, getMaskInstructions, getMask } = require('./controllers/maskController.js');
 const { getVideos, getVideo } = require('./controllers/videoController.js');
 const { updateProfile } = require('./controllers/profileController.js');
-const clearPreparedStatements = require('./middleware/clearPreparedStatements.js');
 
 require('dotenv').config();
 const prisma = require('./prisma');
@@ -51,7 +50,7 @@ app.use(cors({
 
 app.use(express.json());
 app.use(cors());
-app.use(clearPreparedStatements);
+
 
 
 // Публичные эндпоинты
@@ -68,21 +67,23 @@ app.get('/api/user/:telegramId/masks', async (req, res) => {
   try {
     const { telegramId } = req.params;
 
-    const user = await prisma.user.findUnique({
-      where: { telegramId },
-      include: {
-        userMasks: {
-          include: {
-            mask: {
-              include: {
-                features: true,
-                reviews: true,
-                ExtraField: true,
+    const user = await prisma.safeExecute(async () => {
+      return await prisma.user.findUnique({
+        where: { telegramId },
+        include: {
+          userMasks: {
+            include: {
+              mask: {
+                include: {
+                  features: true,
+                  reviews: true,
+                  ExtraField: true,
+                },
               },
             },
           },
         },
-      },
+      });
     });
 
     if (!user) {
@@ -102,28 +103,31 @@ app.post('/api/user/:telegramId/add-mask', async (req, res) => {
 
   if (!maskId) return res.status(400).json({ error: 'maskId is required' });
 
-  const user = await prisma.user.findUnique({ where: { telegramId } });
+  const user = await prisma.safeExecute(async () => {
+    return await prisma.user.findUnique({ where: { telegramId } });
+  });
   if (!user) return res.status(404).json({ error: 'User not found' });
 
-  const mask = await prisma.mask.findUnique({ where: { id: maskId } });
+  const mask = await prisma.safeExecute(async () => {
+    return await prisma.mask.findUnique({ where: { id: maskId } });
+  });
   if (!mask) return res.status(404).json({ error: 'Mask not found' });
 
-  // Проверка: не добавлена ли уже
-  const existing = await prisma.userMask.findUnique({
-    where: {
-      userId_maskId: {
+  // Идемпотентное добавление маски через upsert по составному уникальному ключу
+  const userMask = await prisma.safeExecute(async () => {
+    return await prisma.userMask.upsert({
+      where: {
+        userId_maskId: {
+          userId: user.id,
+          maskId: mask.id,
+        },
+      },
+      update: {},
+      create: {
         userId: user.id,
         maskId: mask.id,
       },
-    },
-  });
-  if (existing) return res.status(400).json({ error: 'Mask already added' });
-
-  const userMask = await prisma.userMask.create({
-    data: {
-      userId: user.id,
-      maskId: mask.id,
-    },
+    });
   });
 
   res.json(userMask);
@@ -154,6 +158,23 @@ app.delete('/api/admin/reviews/:id', deleteReview);
 app.get('/api/admin/settings', getSettings);
 app.post('/api/admin/settings', updateSetting);
 app.post('/api/admin/send-message', sendGlobalMessage);
+
+// Централизованный обработчик ошибок Prisma/БД
+app.use((err, req, res, next) => {
+  const message = typeof err?.message === 'string' ? err.message : 'Internal error'
+  // Коды Prisma
+  if (err?.code === 'P1001') {
+    return res.status(503).json({ error: 'БД недоступна. Повторите запрос позже.' })
+  }
+  if (err?.code === 'P2002') {
+    return res.status(409).json({ error: 'Конфликт уникальности.' })
+  }
+  // Ошибка несоответствия схемы (например, undefined column)
+  if (message.includes('column') || message.includes('Undefined column')) {
+    return res.status(500).json({ error: 'Схема БД не синхронизирована. Запустите prisma migrate deploy.' })
+  }
+  return res.status(500).json({ error: message })
+})
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
